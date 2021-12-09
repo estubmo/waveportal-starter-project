@@ -21,11 +21,81 @@ export default function App() {
     useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isMining, setIsMining] = useState(false);
-  const [totalWaves, setTotalWaves] = useState("Loading...");
+  const [totalWaves, setTotalWaves] = useState(0);
   const [signer, setSigner] = useState();
+  const [allWaves, setAllWaves] = useState([]);
+  const [message, setMessage] = useState("");
 
-  const contractAddress = "0xE13Aef277a8f4321bcb4FdA6131ae45d3067bc62";
+  const contractAddress = "0x489E9298ceaf6b15f9528608018f080798D36F0F";
   const contractABI = abi.abi;
+
+  const getAllWaves = useCallback(async () => {
+    const { ethereum } = window;
+
+    try {
+      if (ethereum) {
+        const provider = new ethers.providers.Web3Provider(ethereum);
+        const signer = provider.getSigner();
+        const wavePortalContract = new ethers.Contract(
+          contractAddress,
+          contractABI,
+          signer
+        );
+        const waves = await wavePortalContract.getAllWaves();
+
+        const wavesCleaned = waves.map((wave) => {
+          return {
+            address: wave.waver,
+            timestamp: new Date(wave.timestamp * 1000),
+            message: wave.message,
+          };
+        });
+
+        setAllWaves(wavesCleaned);
+      } else {
+        console.log("Ethereum object doesn't exist!");
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  }, [contractABI]);
+
+  /**
+   * Listen in for emitter events!
+   */
+  useEffect(() => {
+    let wavePortalContract;
+
+    const onNewWave = (from, timestamp, message) => {
+      console.log("NewWave", from, timestamp, message);
+      setAllWaves((prevState) => [
+        ...prevState,
+        {
+          address: from,
+          timestamp: new Date(timestamp * 1000),
+          message: message,
+        },
+      ]);
+    };
+
+    if (window.ethereum) {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+
+      wavePortalContract = new ethers.Contract(
+        contractAddress,
+        contractABI,
+        signer
+      );
+      wavePortalContract.on("NewWave", onNewWave);
+    }
+
+    return () => {
+      if (wavePortalContract) {
+        wavePortalContract.off("NewWave", onNewWave);
+      }
+    };
+  }, [contractABI]);
 
   const checkIfWalletIsConnected = useCallback(async () => {
     try {
@@ -38,7 +108,7 @@ export default function App() {
         const signer = provider.getSigner();
 
         setSigner(signer);
-
+        getAllWaves();
         const wavePortalContract = new ethers.Contract(
           contractAddress,
           contractABI,
@@ -69,7 +139,15 @@ export default function App() {
       setIsLoading(false);
       console.log(error);
     }
-  }, [contractABI]);
+  }, [contractABI, getAllWaves]);
+
+  useEffect(() => {
+    checkIfWalletIsConnected();
+  }, [checkIfWalletIsConnected]);
+
+  /*
+   * Create a method that gets all waves from your contract
+   */
 
   const connectWallet = async () => {
     try {
@@ -113,8 +191,12 @@ export default function App() {
          * Execute the actual wave from your smart contract
          */
         setIsWaitingForTxnToBeSigned(true);
-        const waveTxn = await wavePortalContract.wave();
+        const waveTxn = await wavePortalContract.wave(message, {
+          gasLimit: 300000,
+        });
+
         setIsWaitingForTxnToBeSigned(false);
+        setMessage("");
         setIsMining(true);
         console.log("Mining...", waveTxn.hash);
 
@@ -137,10 +219,6 @@ export default function App() {
       console.log(error);
     }
   };
-
-  useEffect(() => {
-    checkIfWalletIsConnected();
-  }, [checkIfWalletIsConnected]);
 
   return (
     <div className="mainContainer">
@@ -166,7 +244,12 @@ export default function App() {
             <div>Download an Ethereum Wallet</div>
           )}
         </div>
-
+        <input
+          type="text"
+          id="message"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
         <button className="waveButton" onClick={wave}>
           Send me an avocado{" "}
           <span role="img" aria-label="avocado emoji">
@@ -224,6 +307,21 @@ export default function App() {
             </h3>
           )}
         </div>
+
+        {allWaves.map((wave, index) => (
+          <div
+            key={index}
+            style={{
+              backgroundColor: "OldLace",
+              marginTop: "16px",
+              padding: "8px",
+            }}
+          >
+            <div>Address: {wave.address}</div>
+            <div>Time: {wave.timestamp.toString()}</div>
+            <div>Message: {wave.message}</div>
+          </div>
+        ))}
       </div>
     </div>
   );
